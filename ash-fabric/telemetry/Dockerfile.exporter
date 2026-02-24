@@ -1,0 +1,5 @@
+FROM python:3.12-slim
+WORKDIR /app
+RUN pip install --no-cache-dir requests
+COPY mock_exporter.py .
+CMD ["python", "mock_exporter.py"]

@@ -1,0 +1,70 @@
+---
+# ASH-Fabric: Disk Cleanup Playbook
+# Triggered by Triage Agent on DiskSpaceCritical alerts
+- name: Purge disk space and expand volume
+  hosts: "{{ target_host | default('localhost') }}"
+  connection: local
+  gather_facts: true
+
+  vars:
+    target_service: "{{ target_service | default('unknown') }}"
+    disk_threshold: 90
+    log_retention_days: 7
+
+  tasks:
+    - name: Check current disk usage
+      command: "df -h / --output=pcent"
+      register: disk_usage
+      changed_when: false
+
+    - name: Display disk usage
+      debug:
+        msg: "Current disk usage: {{ disk_usage.stdout_lines[-1] | trim }}"
+
+    - name: Purge temporary files
+      file:
+        path: /tmp
+        state: absent
+      become: true
+      ignore_errors: true
+
+    - name: Recreate /tmp directory
+      file:
+        path: /tmp
+        state: directory
+        mode: "1777"
+      become: true
+
+    - name: Remove old log files
+      find:
+        paths:
+          - /var/log
+        age: "{{ log_retention_days }}d"
+        recurse: true
+        patterns: "*.log,*.log.gz,*.log.*.gz"
+      register: old_logs
+
+    - name: Delete old log files
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_logs.files }}"
+      become: true
+
+    - name: Prune Docker system (unused images, volumes, networks)
+      command: "docker system prune -af --volumes"
+      register: prune_result
+      changed_when: true
+
+    - name: Verify disk usage after cleanup
+      command: "df -h / --output=pcent"
+      register: disk_after
+      changed_when: false
+
+    - name: Report cleanup results
+      debug:
+        msg: >
+          Disk cleanup complete for {{ target_service }}.
+          Before: {{ disk_usage.stdout_lines[-1] | trim }},
+          After: {{ disk_after.stdout_lines[-1] | trim }}.
+          Old logs removed: {{ old_logs.matched }}.

@@ -1,0 +1,135 @@
+version: "3.9"
+
+services:
+  # ─── Event Bus ───────────────────────────────────────────────
+  nats:
+    image: nats:2.10-alpine
+    container_name: ash-nats
+    ports:
+      - "4222:4222"   # Client connections
+      - "8222:8222"   # HTTP monitoring
+    command: ["--jetstream", "--store_dir", "/data", "-m", "8222"]
+    volumes:
+      - nats-data:/data
+    restart: unless-stopped
+
+  # ─── Metrics Store (Prometheus-compatible, low resource) ─────
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.101.0
+    container_name: ash-victoriametrics
+    ports:
+      - "8428:8428"
+    volumes:
+      - vm-data:/victoria-metrics-data
+    command:
+      - "--retentionPeriod=7d"
+      - "--httpListenAddr=:8428"
+    restart: unless-stopped
+
+  # ─── Mock Exporter (generates fake telemetry) ───────────────
+  mock-exporter:
+    build:
+      context: ./telemetry
+      dockerfile: Dockerfile.exporter
+    container_name: ash-mock-exporter
+    environment:
+      VM_ENDPOINT: "http://victoriametrics:8428"
+      PUSH_INTERVAL: "30"
+    depends_on:
+      - victoriametrics
+    restart: unless-stopped
+
+  # ─── Alertmanager (threshold-based alerting) ─────────────────
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: ash-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./telemetry/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    restart: unless-stopped
+
+  # ─── VMAlert (evaluates alert rules against VictoriaMetrics) ─
+  vmalert:
+    image: victoriametrics/vmalert:v1.101.0
+    container_name: ash-vmalert
+    depends_on:
+      - victoriametrics
+      - alertmanager
+    command:
+      - "--datasource.url=http://victoriametrics:8428"
+      - "--notifier.url=http://alertmanager:9093"
+      - "--rule=/etc/rules/*.yml"
+      - "--evaluationInterval=15s"
+    volumes:
+      - ./telemetry/alerts.rules.yml:/etc/rules/alerts.rules.yml
+    restart: unless-stopped
+
+  # ─── Go Orchestrator ────────────────────────────────────────
+  orchestrator:
+    build:
+      context: ./services/orchestrator
+      dockerfile: Dockerfile
+    container_name: ash-orchestrator
+    environment:
+      NATS_URL: "nats://nats:4222"
+      VM_ENDPOINT: "http://victoriametrics:8428"
+      AGENT_BRAIN_URL: "http://agent-brain:8000"
+    depends_on:
+      - nats
+      - victoriametrics
+    restart: unless-stopped
+
+  # ─── Python Agent Brain ─────────────────────────────────────
+  agent-brain:
+    build:
+      context: ./services/agent-brain
+      dockerfile: Dockerfile
+    container_name: ash-agent-brain
+    ports:
+      - "8000:8000"
+    environment:
+      NATS_URL: "nats://nats:4222"
+      VM_ENDPOINT: "http://victoriametrics:8428"
+      SCRIPTS_DIR: "/app/scripts"
+      OLLAMA_BASE_URL: "http://host.docker.internal:11434"
+    volumes:
+      - ./scripts:/app/scripts
+      - ./data/logs:/app/logs
+    depends_on:
+      - nats
+      - victoriametrics
+    restart: unless-stopped
+
+  # ─── Next.js Dashboard ──────────────────────────────────────
+  dashboard:
+    build:
+      context: ./services/dashboard
+      dockerfile: Dockerfile
+    container_name: ash-dashboard
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: "http://agent-brain:8000"
+      NEXT_PUBLIC_NATS_WS: "ws://nats:8222"
+    depends_on:
+      - agent-brain
+    restart: unless-stopped
+
+  # ─── Grafana (optional visualization) ───────────────────────
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: ash-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "ashfabric"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    restart: unless-stopped
+
+volumes:
+  nats-data:
+  vm-data:
+  grafana-data:

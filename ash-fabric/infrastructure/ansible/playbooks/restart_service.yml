@@ -1,0 +1,44 @@
+---
+# ASH-Fabric: Restart Service Playbook
+# Triggered by Triage Agent on OOM Kill or High CPU alerts
+- name: Restart overloaded service
+  hosts: "{{ target_host | default('localhost') }}"
+  connection: local
+  gather_facts: false
+
+  vars:
+    target_service: "{{ target_service | default('api-gateway') }}"
+    max_retries: 3
+    wait_seconds: 10
+
+  tasks:
+    - name: Check if service container is running
+      command: "docker ps --filter name={{ target_service }} --format '{%raw%}{{.Status}}{%endraw%}'"
+      register: container_status
+      changed_when: false
+
+    - name: Display current status
+      debug:
+        msg: "Service {{ target_service }} status: {{ container_status.stdout }}"
+
+    - name: Gracefully restart the service
+      command: "docker restart {{ target_service }}"
+      register: restart_result
+      retries: "{{ max_retries }}"
+      delay: "{{ wait_seconds }}"
+      until: restart_result.rc == 0
+
+    - name: Wait for service to be healthy
+      command: "docker inspect --format '{%raw%}{{.State.Health.Status}}{%endraw%}' {{ target_service }}"
+      register: health_check
+      retries: 6
+      delay: 10
+      until: health_check.stdout == 'healthy'
+      ignore_errors: true
+
+    - name: Log restart outcome
+      debug:
+        msg: >
+          Service {{ target_service }} restart
+          {{ 'succeeded' if restart_result.rc == 0 else 'FAILED' }}.
+          Health: {{ health_check.stdout | default('unknown') }}

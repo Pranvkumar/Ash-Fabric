@@ -1,0 +1,58 @@
+groups:
+  - name: ash-fabric-alerts
+    interval: 15s
+    rules:
+      # ── OOM Kill Risk ──────────────────────────────────────
+      - alert: HighMemoryUsage
+        expr: node_memory_usage_percent > 95
+        for: 1m
+        labels:
+          severity: critical
+          action: restart_container
+        annotations:
+          summary: "Memory usage above 95% on {{ $labels.instance }}"
+          description: "Service {{ $labels.service }} memory at {{ $value }}%"
+
+      # ── High CPU ───────────────────────────────────────────
+      - alert: HighCPUUsage
+        expr: node_cpu_usage_percent > 90
+        for: 2m
+        labels:
+          severity: warning
+          action: scale_or_restart
+        annotations:
+          summary: "CPU usage above 90% on {{ $labels.instance }}"
+          description: "Service {{ $labels.service }} CPU at {{ $value }}%"
+
+      # ── Latency Spike ─────────────────────────────────────
+      - alert: HighLatency
+        expr: http_request_duration_ms > 500
+        for: 1m
+        labels:
+          severity: warning
+          action: check_db_connections
+        annotations:
+          summary: "Latency above 500ms on {{ $labels.service }}"
+          description: "P95 latency at {{ $value }}ms"
+
+      # ── Disk Full ──────────────────────────────────────────
+      - alert: DiskSpaceCritical
+        expr: node_disk_usage_percent > 90
+        for: 5m
+        labels:
+          severity: critical
+          action: purge_and_expand
+        annotations:
+          summary: "Disk usage above 90% on {{ $labels.instance }}"
+          description: "Disk at {{ $value }}% capacity"
+
+      # ── Zombie Resource ────────────────────────────────────
+      - alert: ZombieResource
+        expr: node_cpu_usage_percent < 1
+        for: 4h
+        labels:
+          severity: info
+          action: terminate_and_backup
+        annotations:
+          summary: "Resource {{ $labels.instance }} idle for 4+ hours"
+          description: "CPU at {{ $value }}% — potential zombie"

@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+vendor/
+
+# Build outputs
+.next/
+dist/
+*.exe
+orchestrator
+
+# Runtime data
+data/logs/*
+data/sqlite.db
+!data/logs/.gitkeep
+services/agent-brain/logs/execution_log.jsonl
+services/agent-brain/logs/postmortems/*.md
+!services/agent-brain/logs/.gitkeep
+!services/agent-brain/logs/postmortems/.gitkeep
+
+# Environment
+.env
+*.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker volumes
+nats-data/
+vm-data/
+grafana-data/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+
+# OS
+.DS_Store
+Thumbs.db
