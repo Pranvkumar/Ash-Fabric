@@ -9,7 +9,7 @@ vendor/
 .next/
 dist/
 *.exe
-orchestrator
+/orchestrator
 
 # Runtime data
 data/logs/*
